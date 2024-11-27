@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Manage Products</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Admin - Manage Products</h1>
+
+        <!-- Add New Product Section -->
+        <section id="add-product-section">
+            <h2>Add New Product</h2>
+            <form action="{{ url_for('add_products') }}" method="POST" enctype="multipart/form-data">
+                {{ form.hidden_tag() }}
+                
+                <!-- Product Details -->
+                <div class="product-entry">
+                    <h3>Product Details</h3>
+                    <label for="name">Name:</label>
+                    <input type="text" name="name" required placeholder="Enter product name">
+
+                    <label for="price">Price:</label>
+                    <input type="number" name="price" step="0.01" required placeholder="Enter price">
+
+                    <label for="category">Category:</label>
+                    <input type="text" name="category" required placeholder="Enter category">
+
+                    <label for="stock">Stock:</label>
+                    <input type="number" name="stock" required placeholder="Enter stock quantity">
+
+                    <label for="image">Image:</label>
+                    <input type="file" name="image" accept="image/*">
+                </div>
+
+                <button type="submit" class="btn btn-primary">Submit Product</button>
+            </form>
+        </section>
+    </div>
+</body>
+</html>

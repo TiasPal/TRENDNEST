@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Order Confirmation{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+<div class="container">
+    <h1 class="mt-5">Thank You for Your Order!</h1>
+    <p>Your order has been successfully placed. Below are your order details:</p>
+
+    <div class="order-details">
+        <h4>Order ID: {{ order_id }}</h4>
+
+        <p><strong>Status:</strong> {{ shipping_address }}</p>
+        <p><strong>Shipping Address:</strong> {{ order_status }}</p>
+        <p><strong>Total Amount:</strong> Rs {{ total_amount }}</p>
+
+        <h4>Payment Details:</h4>
+        <p><strong>Payment Status:</strong> Paid</p>
+        <p><strong>Payment Method:</strong> {{ payment_method }}</p>
+        <p><strong>Payment Date:</strong> {{ payment_date }}</p>
+
+        <hr>
+        <p>We will notify you when your order is shipped. Thank you for shopping with us!</p>
+    </div>
+
+    <a href="{{ url_for('products') }}" class="btn btn-primary mt-4">Continue Shopping</a>
+</div>
+{% endblock %}

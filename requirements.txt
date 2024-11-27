@@ -1,0 +1,12 @@
+Flask==2.3.2
+Flask-WTF==1.0.1
+mysql-connector==8.0.29
+WTForms==3.0.1
+Werkzeug==2.3.4
+pytz==2023.3
+
+# pip install Flask
+#pip install Werkzeug
+#pip install mysql-connector
+#pip install Flask-WTF
+#pip install pytz
