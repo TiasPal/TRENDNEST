@@ -150,10 +150,34 @@ def run_tests():
         product_id = response.json().get("_id")
     else:
         tests_failed += 1
-        # Try to get a product for further testing
-        response = requests.get(f"{BASE_URL}/products")
-        if response.status_code == 200 and response.json().get("products"):
-            product_id = response.json().get("products")[0].get("_id")
+        print("Admin access issue detected. Creating product directly in database for testing...")
+        
+        # Create a product directly in the database for testing
+        import pymongo
+        from datetime import datetime
+        import uuid
+        
+        client = pymongo.MongoClient("mongodb://localhost:27017/")
+        db = client["trendnest"]
+        products_collection = db["products"]
+        
+        product_data = {
+            "_id": str(uuid.uuid4()),
+            "name": test_product["name"],
+            "description": test_product["description"],
+            "price": test_product["price"],
+            "category": test_product["category"],
+            "stock": test_product["stock"],
+            "image_base64": test_product["image_base64"],
+            "average_rating": 0.0,
+            "review_count": 0,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        
+        products_collection.insert_one(product_data)
+        product_id = product_data["_id"]
+        print(f"Created product with ID: {product_id}")
     
     # 3.2 Get Products List
     response = requests.get(f"{BASE_URL}/products")
