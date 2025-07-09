@@ -386,6 +386,280 @@ async def add_to_cart(item: CartItem, current_user: dict = Depends(get_current_u
     
     return {"message": "Item added to cart"}
 
+@app.put("/api/cart/update")
+async def update_cart_item(item: CartItem, current_user: dict = Depends(get_current_user)):
+    cart = await carts_collection.find_one({"user_id": current_user["_id"]})
+    if not cart:
+        raise HTTPException(status_code=404, detail="Cart not found")
+    
+    # Find and update item
+    item_found = False
+    for cart_item in cart["items"]:
+        if cart_item["product_id"] == item.product_id:
+            cart_item["quantity"] = item.quantity
+            item_found = True
+            break
+    
+    if not item_found:
+        raise HTTPException(status_code=404, detail="Item not found in cart")
+    
+    cart["updated_at"] = datetime.utcnow()
+    await carts_collection.replace_one({"user_id": current_user["_id"]}, cart)
+    
+    return {"message": "Cart updated"}
+
+@app.delete("/api/cart/remove/{product_id}")
+async def remove_from_cart(product_id: str, current_user: dict = Depends(get_current_user)):
+    cart = await carts_collection.find_one({"user_id": current_user["_id"]})
+    if not cart:
+        raise HTTPException(status_code=404, detail="Cart not found")
+    
+    # Remove item
+    cart["items"] = [item for item in cart["items"] if item["product_id"] != product_id]
+    cart["updated_at"] = datetime.utcnow()
+    
+    await carts_collection.replace_one({"user_id": current_user["_id"]}, cart)
+    
+    return {"message": "Item removed from cart"}
+
+@app.delete("/api/cart/clear")
+async def clear_cart(current_user: dict = Depends(get_current_user)):
+    await carts_collection.delete_one({"user_id": current_user["_id"]})
+    return {"message": "Cart cleared"}
+
+# Orders endpoints
+@app.get("/api/orders")
+async def get_orders(current_user: dict = Depends(get_current_user)):
+    orders_cursor = orders_collection.find({"user_id": current_user["_id"]}).sort("created_at", -1)
+    orders = []
+    
+    async for order in orders_cursor:
+        order["_id"] = str(order["_id"])
+        orders.append(order)
+    
+    return {"orders": orders}
+
+@app.get("/api/orders/{order_id}")
+async def get_order(order_id: str, current_user: dict = Depends(get_current_user)):
+    order = await orders_collection.find_one({"_id": order_id, "user_id": current_user["_id"]})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    order["_id"] = str(order["_id"])
+    return order
+
+@app.post("/api/orders")
+async def create_order(order_data: OrderCreate, current_user: dict = Depends(get_current_user)):
+    # Get cart items
+    cart = await carts_collection.find_one({"user_id": current_user["_id"]})
+    if not cart or not cart.get("items"):
+        raise HTTPException(status_code=400, detail="Cart is empty")
+    
+    # Calculate total and get product details
+    total_amount = 0
+    order_items = []
+    
+    for item in cart["items"]:
+        product = await products_collection.find_one({"_id": item["product_id"]})
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product {item['product_id']} not found")
+        
+        if product["stock"] < item["quantity"]:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
+        
+        item_total = product["price"] * item["quantity"]
+        total_amount += item_total
+        
+        order_items.append({
+            "product_id": item["product_id"],
+            "product_name": product["name"],
+            "quantity": item["quantity"],
+            "price": product["price"],
+            "total": item_total
+        })
+    
+    # Create order
+    order = {
+        "_id": str(uuid.uuid4()),
+        "user_id": current_user["_id"],
+        "items": order_items,
+        "total_amount": total_amount,
+        "shipping_address": order_data.shipping_address,
+        "payment_method": order_data.payment_method,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    await orders_collection.insert_one(order)
+    
+    # Update product stock
+    for item in order_items:
+        await products_collection.update_one(
+            {"_id": item["product_id"]},
+            {"$inc": {"stock": -item["quantity"]}}
+        )
+    
+    # Clear cart
+    await carts_collection.delete_one({"user_id": current_user["_id"]})
+    
+    order["_id"] = str(order["_id"])
+    return order
+
+# Reviews endpoints
+@app.get("/api/products/{product_id}/reviews")
+async def get_product_reviews(product_id: str):
+    reviews_cursor = reviews_collection.find({"product_id": product_id}).sort("created_at", -1)
+    reviews = []
+    
+    async for review in reviews_cursor:
+        review["_id"] = str(review["_id"])
+        reviews.append(review)
+    
+    return {"reviews": reviews}
+
+@app.post("/api/reviews")
+async def create_review(review_data: ReviewCreate, current_user: dict = Depends(get_current_user)):
+    # Check if product exists
+    product = await products_collection.find_one({"_id": review_data.product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Check if user already reviewed this product
+    existing_review = await reviews_collection.find_one({
+        "product_id": review_data.product_id,
+        "user_id": current_user["_id"]
+    })
+    if existing_review:
+        raise HTTPException(status_code=400, detail="You have already reviewed this product")
+    
+    # Create review
+    review = {
+        "_id": str(uuid.uuid4()),
+        "product_id": review_data.product_id,
+        "user_id": current_user["_id"],
+        "username": current_user["username"],
+        "rating": review_data.rating,
+        "comment": review_data.comment,
+        "image_base64": review_data.image_base64,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    await reviews_collection.insert_one(review)
+    
+    # Update product rating
+    await update_product_rating(review_data.product_id)
+    
+    review["_id"] = str(review["_id"])
+    return review
+
+async def update_product_rating(product_id: str):
+    # Calculate average rating
+    pipeline = [
+        {"$match": {"product_id": product_id}},
+        {"$group": {
+            "_id": "$product_id",
+            "average_rating": {"$avg": "$rating"},
+            "review_count": {"$sum": 1}
+        }}
+    ]
+    
+    result = await reviews_collection.aggregate(pipeline).to_list(1)
+    if result:
+        await products_collection.update_one(
+            {"_id": product_id},
+            {
+                "$set": {
+                    "average_rating": round(result[0]["average_rating"], 1),
+                    "review_count": result[0]["review_count"]
+                }
+            }
+        )
+
+# Wishlist endpoints
+@app.get("/api/wishlist")
+async def get_wishlist(current_user: dict = Depends(get_current_user)):
+    wishlist = await wishlists_collection.find_one({"user_id": current_user["_id"]})
+    if not wishlist:
+        return {"items": []}
+    
+    # Get product details
+    wishlist_items = []
+    for item in wishlist.get("items", []):
+        product = await products_collection.find_one({"_id": item["product_id"]})
+        if product:
+            product["_id"] = str(product["_id"])
+            wishlist_items.append({
+                "product": product,
+                "added_at": item["added_at"]
+            })
+    
+    return {"items": wishlist_items}
+
+@app.post("/api/wishlist/add")
+async def add_to_wishlist(item: dict, current_user: dict = Depends(get_current_user)):
+    product_id = item.get("product_id")
+    
+    # Check if product exists
+    product = await products_collection.find_one({"_id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Get or create wishlist
+    wishlist = await wishlists_collection.find_one({"user_id": current_user["_id"]})
+    if not wishlist:
+        wishlist = {
+            "user_id": current_user["_id"],
+            "items": [],
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+    
+    # Check if item already exists
+    for wishlist_item in wishlist["items"]:
+        if wishlist_item["product_id"] == product_id:
+            raise HTTPException(status_code=400, detail="Item already in wishlist")
+    
+    # Add item
+    wishlist["items"].append({
+        "product_id": product_id,
+        "added_at": datetime.utcnow()
+    })
+    
+    wishlist["updated_at"] = datetime.utcnow()
+    
+    await wishlists_collection.replace_one(
+        {"user_id": current_user["_id"]},
+        wishlist,
+        upsert=True
+    )
+    
+    return {"message": "Item added to wishlist"}
+
+@app.delete("/api/wishlist/remove/{product_id}")
+async def remove_from_wishlist(product_id: str, current_user: dict = Depends(get_current_user)):
+    wishlist = await wishlists_collection.find_one({"user_id": current_user["_id"]})
+    if not wishlist:
+        raise HTTPException(status_code=404, detail="Wishlist not found")
+    
+    # Remove item
+    wishlist["items"] = [item for item in wishlist["items"] if item["product_id"] != product_id]
+    wishlist["updated_at"] = datetime.utcnow()
+    
+    await wishlists_collection.replace_one({"user_id": current_user["_id"]}, wishlist)
+    
+    return {"message": "Item removed from wishlist"}
+
+@app.get("/api/wishlist/check/{product_id}")
+async def check_wishlist(product_id: str, current_user: dict = Depends(get_current_user)):
+    wishlist = await wishlists_collection.find_one({"user_id": current_user["_id"]})
+    if not wishlist:
+        return {"in_wishlist": False}
+    
+    in_wishlist = any(item["product_id"] == product_id for item in wishlist.get("items", []))
+    return {"in_wishlist": in_wishlist}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
